@@ -83,23 +83,3 @@ xvfb-run --server-args="-screen 0 1920x1080x24" python3 programTest.py
     
 -   **Rozdzielczość**: Flaga  `-screen 0 1920x1080x24`  wymusza rozmiar Full HD. Bez tego ChatGPT może załadować wersję mobilną strony, co zmieni układ przycisków i uniemożliwi botowi znalezienie pola tekstowego.
     
-
-## 5. Praca z Gitem (.gitignore)
-
-Jeśli planujesz wrzucić projekt do sieci, stwórz plik  `.gitignore`, aby nie udostępnić swojej sesji (ciasteczek) innym:
-
-```
-venv/
-__pycache__/
-gpt_profile/
-*.png
-*.log
-.DS_Store
-
-```
-
-## 6. Rozwiązywanie problemów
-
--   **Błąd "PyAutoGUI can't be used in headless mode"**: Oznacza, że zapomniałeś ustawić  `headless=False`  w kodzie dla Linuxa. Pamiętaj: Xvfb ukrywa okno za Ciebie, więc SeleniumBase musi myśleć, że ma monitor.
-    
--   **Pętla Cloudflare**: Jeśli bot ciągle klika i strona się odświeża, sprawdź plik  `debug_error.png`. Zazwyczaj pomaga nieusuwanie folderu  `gpt_profile`, dzięki czemu bot "pamięta" poprzednie udane weryfikacje.
