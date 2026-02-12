@@ -1,165 +1,88 @@
-#!/bin/bash
+FakeGPT na Raspberry Pi (Headless / SSH)
 
-# ==========================================
-# FakeGPT Installer dla Raspberry Pi (Headless)
-# ==========================================
+Kompletna instrukcja uruchomienia skryptu fake_gpt.py na Raspberry Pi (lub innym Linuxie bez interfejsu graficznego) z obejściem zabezpieczeń Cloudflare.
 
-echo "🚀 Rozpoczynam instalację FakeGPT..."
+1. Wymagania systemowe (APT)
 
-# 1. Instalacja pakietów systemowych
-echo "📦 [1/5] Aktualizacja i instalacja pakietów systemowych..."
+Zanim zaczniesz, musisz zainstalować przeglądarkę, sterowniki oraz wirtualny ekran (xvfb), który pozwoli oszukać biblioteki graficzne i umożliwi działanie myszki w trybie tekstowym.
+
+Uruchom w terminalu:
+
 sudo apt update
 sudo apt install -y chromium-browser chromium-chromedriver xvfb python3-venv libatk1.0-0 libatk-bridge2.0-0 libgtk-3-0
 
-# 2. Tworzenie środowiska wirtualnego
-echo "🐍 [2/5] Konfiguracja środowiska Python (venv)..."
-if [ ! -d "venv" ]; then
-    python3 -m venv venv
-    echo "   Utworzono nowy folder venv."
-else
-    echo "   Folder venv już istnieje."
-fi
 
-# Aktywacja środowiska w kontekście skryptu
+chromium-browser & chromium-chromedriver: Przeglądarka i sterownik (na architekturze ARM muszą pochodzić z repozytorium systemowego).
+
+xvfb: X Virtual Framebuffer (udaje monitor w pamięci RAM, co jest kluczowe przy połączeniu przez SSH).
+
+libatk, libgtk: Biblioteki pomocnicze wymagane do poprawnego renderowania okna przeglądarki.
+
+2. Przygotowanie środowiska Python
+
+Zaleca się używanie wirtualnego środowiska (venv), aby uniknąć konfliktów z pakietami systemowymi.
+
+Utwórz środowisko (w folderze projektu):
+
+python3 -m venv venv
+
+
+Aktywuj środowisko:
+
 source venv/bin/activate
 
-# 3. Instalacja bibliotek
-echo "📥 [3/5] Instalacja SeleniumBase..."
+
+(Po aktywacji zobaczysz przedrostek (venv) w terminalu).
+
+Zainstaluj bibliotekę SeleniumBase:
+
 pip3 install seleniumbase
 
-# 4. Generowanie pliku biblioteki fake_gpt.py
-echo "📝 [4/5] Tworzenie pliku fake_gpt.py (z fixem na Cloudflare)..."
-cat << 'EOF' > fake_gpt.py
-from seleniumbase import SB
-import sys
-import time
-import random
 
-def ask_gpt(prompt, headless=True):
-    """
-    Funkcja wchodzi na ChatGPT, wpisuje prompt i zwraca odpowiedź.
-    Przystosowana do działania na Raspberry Pi z agresywnym obejściem Cloudflare.
-    """
-    
-    url = "https://chatgpt.com/?ref=dotcom"
-    textarea_sel = "#prompt-textarea"
-    send_btn_sel = 'button[data-testid="send-button"]'
-    stop_btn_sel = 'button[data-testid="stop-button"]'
-    response_sel = 'div[data-message-author-role="assistant"]' 
+3. Konfiguracja Skryptu (fake_gpt.py)
 
-    try:
-        real_headless = headless
-        if sys.platform == "linux":
-            print("🐧 Wykryto Linux (RPi). Wymuszam tryb graficzny dla Xvfb (headless=False)...")
-            real_headless = False
+Aby ominąć Cloudflare, skrypt musi udawać, że działa w trybie okienkowym (nawet jeśli używamy Xvfb). W funkcji ask_gpt musi znaleźć się mechanizm wykrywający system operacyjny:
 
-        with SB(uc=True, test=True, headless=real_headless, user_data_dir="gpt_profile") as sb:
-            sb.set_window_size(1920, 1080)
-            
-            print(f"🌐 Otwieram stronę (metoda reconnect): {url} ...")
-            sb.driver.uc_open_with_reconnect(url, reconnect_time=random.uniform(5, 7))
-            
-            print("🛡️ Rozpoczynam procedurę weryfikacji (pętla 120s)...")
-            start_time = time.time()
-            max_duration = 120
-            click_attempts = 0
-            
-            while time.time() - start_time < max_duration:
-                if sb.is_element_visible(textarea_sel):
-                    print("✅ Pole tekstowe wykryte! Jesteśmy w środku.")
-                    break
-                
-                page_title = sb.get_title()
-                if any(x in page_title for x in ["Just a moment", "Cierpliwości", "Challenge", "Verify"]):
-                    print(f"⚠️ Cloudflare (Próba {click_attempts+1})...")
-                    try:
-                        sb.driver.uc_gui_click_captcha()
-                        print("🖱️ Kliknięto myszką. Czekam 10-15s na weryfikację...")
-                        time.sleep(random.uniform(10, 15))
-                        click_attempts += 1
-                        if click_attempts % 3 == 0:
-                            print("🔄 Zbyt wiele nieudanych prób. Odświeżam stronę...")
-                            sb.refresh()
-                            time.sleep(5)
-                    except Exception as e:
-                        print(f"⚠️ Błąd klikania (GUI): {e}. Próbuję fallback...")
-                        try:
-                             sb.driver.uc_click("input[type='checkbox']")
-                        except:
-                             pass
-                        time.sleep(3)
-                else:
-                    print(f"⏳ Oczekiwanie... (Tytuł: {page_title})")
-                    if "403" in page_title or "Access denied" in sb.get_page_source():
-                        print("⛔ Błąd 403 (Ban IP/UserAgent). Czekam 30s...")
-                        time.sleep(30)
-                        sb.refresh()
-                    time.sleep(2)
+# Kluczowy fragment logiki w fake_gpt.py:
+real_headless = headless
+if sys.platform == "linux":
+    # Wymuszamy tryb graficzny dla bota, aby SeleniumBase pozwoliło na użycie myszki (GUI click).
+    # Dzięki xvfb-run okno i tak pozostanie niewidoczne.
+    real_headless = False
 
-            print("📝 Sprawdzam ostatecznie dostępność pola tekstowego...")
-            try:
-                sb.wait_for_element(textarea_sel, timeout=30)
-            except Exception:
-                sb.save_screenshot("debug_error.png")
-                page_title = sb.get_title()
-                raise Exception(f"Nie znaleziono pola input. Tytuł strony: '{page_title}'. Sprawdź debug_error.png")
+with SB(uc=True, test=True, headless=real_headless, user_data_dir="gpt_profile") as sb:
+    # ... reszta logiki ...
 
-            print("📝 Wpisuję prompt...")
-            sb.wait_for_element_clickable(textarea_sel, timeout=10)
-            sb.click(textarea_sel)
-            sb.type(textarea_sel, prompt)
 
-            print("🚀 Wysyłam...")
-            try:
-                sb.wait_for_element_clickable(send_btn_sel, timeout=10)
-                sb.click(send_btn_sel)
-            except Exception:
-                sb.save_screenshot("debug_button_error.png")
-                raise Exception("Przycisk 'Wyślij' nie był klikalny. Sprawdź debug_button_error.png")
+4. Uruchamianie (Kluczowy krok)
 
-            print("🤖 Czekam na odpowiedź od bota...")
-            try:
-                sb.wait_for_element(stop_btn_sel, timeout=10) 
-                sb.wait_for_element_not_visible(stop_btn_sel, timeout=180)
-            except Exception:
-                pass
+Na Raspberry Pi przez SSH zawsze używaj xvfb-run. Nie uruchamiaj skryptu bezpośrednio przez python3, ponieważ mechanizm klikania w CAPTCHA się wywali.
 
-            print("📥 Pobieram odpowiedź...")
-            responses = sb.find_elements(response_sel)
-            if responses:
-                return responses[-1].text
-            else:
-                sb.save_screenshot("debug_no_response.png")
-                return "❌ BŁĄD: Nie znaleziono dymka z odpowiedzią. Sprawdź debug_no_response.png"
+Komenda startowa:
 
-    except Exception as e:
-        return f"❌ BŁĄD KRYTYCZNY: {str(e)}"
-EOF
+xvfb-run --server-args="-screen 0 1920x1080x24" python3 programTest.py
 
-# 5. Generowanie pliku testowego
-echo "📝 [5/5] Tworzenie pliku programTest.py..."
-cat << 'EOF' > programTest.py
-from fake_gpt import ask_gpt
-import sys
 
-prompt = "Opowiedz krótki żart o programistach."
-if len(sys.argv) > 1:
-    prompt = " ".join(sys.argv[1:])
+Dlaczego to jest ważne?
 
-print(f"--- Pytanie: {prompt} ---")
-odpowiedz = ask_gpt(prompt, headless=False)
+Wirtualny ekran: xvfb-run tworzy środowisko graficzne w pamięci RAM.
 
-print("\n" + "="*40)
-print("ODPOWIEDŹ CHATGPT:")
-print("="*40)
-print(odpowiedz)
-print("="*40)
-EOF
+Rozdzielczość: Flaga -screen 0 1920x1080x24 wymusza rozmiar Full HD. Bez tego ChatGPT może załadować wersję mobilną strony, co zmieni układ przycisków i uniemożliwi botowi znalezienie pola tekstowego.
 
-echo ""
-echo "✅ INSTALACJA ZAKOŃCZONA!"
-echo "Aby uruchomić bota, wpisz poniższą komendę:"
-echo ""
-echo "source venv/bin/activate && xvfb-run --server-args=\"-screen 0 1920x1080x24\" python3 programTest.py"
-echo ""
+5. Praca z Gitem (.gitignore)
 
+Jeśli planujesz wrzucić projekt do sieci, stwórz plik .gitignore, aby nie udostępnić swojej sesji (ciasteczek) innym:
+
+venv/
+__pycache__/
+gpt_profile/
+*.png
+*.log
+.DS_Store
+
+
+6. Rozwiązywanie problemów
+
+Błąd "PyAutoGUI can't be used in headless mode": Oznacza, że zapomniałeś ustawić headless=False w kodzie dla Linuxa. Pamiętaj: Xvfb ukrywa okno za Ciebie, więc SeleniumBase musi myśleć, że ma monitor.
+
+Pętla Cloudflare: Jeśli bot ciągle klika i strona się odświeża, sprawdź plik debug_error.png. Zazwyczaj pomaga nieusuwanie folderu gpt_profile, dzięki czemu bot "pamięta" poprzednie udane weryfikacje.
