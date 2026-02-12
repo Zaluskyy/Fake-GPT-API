@@ -1,0 +1,21 @@
+# Pliki binarne i logi błędów
+/debug_error.png
+*.log
+
+# Dane i profile lokalne
+/downloaded_files/
+/gpt_profile/
+
+# Python (cache i skompilowane pliki)
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Środowisko wirtualne
+venv/
+ENV/
+.env
+
+# Pliki systemowe
+.DS_Store
+Thumbs.db
